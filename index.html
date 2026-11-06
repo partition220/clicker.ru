@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Космо-Кликер</title>
+    <style>
+        body { font-family: sans-serif; background: #0f0c1b; color: #fff; text-align: center; padding: 15px; margin: 0; user-select: none; -webkit-user-select: none; touch-action: manipulation; }
+        .panel { background: rgba(255,255,255,0.05); padding: 15px; border-radius: 15px; margin-bottom: 15px; box-sizing: border-box; }
+        #score { font-size: 2.5rem; color: #00ff88; font-weight: bold; display: block; }
+        #cps-display { color: #a0a0c0; font-size: 0.9rem; margin-bottom: 15px; }
+        .click-area { height: 160px; display: flex; justify-content: center; align-items: center; position: relative; margin: 15px 0; }
+        .click-btn { width: 140px; height: 140px; border-radius: 50%; border: none; background: radial-gradient(circle, #8a2be2, #4a0082); font-size: 1.3rem; font-weight: bold; color: #fff; cursor: pointer; box-shadow: 0 0 20px rgba(138,43,226,0.5); -webkit-tap-highlight-color: transparent; }
+        .click-btn:active { opacity: 0.8; }
+        .prestige-box { background: rgba(255,204,0,0.05); border: 1px dashed #ffcc00; padding: 10px; border-radius: 10px; font-size: 0.85rem; }
+        .btn { background: #ffcc00; color: #111; border: none; padding: 8px 15px; font-weight: bold; border-radius: 5px; cursor: pointer; margin-top: 5px; }
+        .btn:disabled { background: #555; color: #888; }
+        .upgrades-list { display: flex; flex-direction: column; gap: 8px; margin-top: 10px; }
+        .upg-item { background: #19162c; border: 1px solid #2d294a; padding: 10px; border-radius: 8px; display: flex; justify-content: space-between; align-items: center; font-size: 0.9rem; -webkit-tap-highlight-color: transparent; }
+        .upg-item.disabled { opacity: 0.4; }
+        .floating-text { position: absolute; color: #00ff88; font-weight: bold; font-size: 1.4rem; pointer-events: none; animation: floatUp 0.5s ease-out forwards; left: 50%; top: 50%; }
+        @keyframes floatUp { 0% { opacity: 1; transform: translate(-50%, -50%) translateY(0); } 100% { opacity: 0; transform: translate(-50%, -50%) translateY(-80px); } }
+        .util-btn { background: rgba(255,255,255,0.1); color: #ccc; border: none; padding: 5px 10px; font-size: 0.8rem; border-radius: 4px; margin-top: 10px; }
+    </style>
+</head>
+<body>
+
+    <div class="panel">
+        <h1 style="margin:0 0 5px 0; font-size: 1.5rem; color: #00d2ff;">Космическая Империя</h1>
+        <span id="score">0</span>
+        <div id="cps-display">В секунду: 0</div>
+        
+        <div class="click-area" id="clickArea">
+            <button class="click-btn" id="mainClick">СБОР</button>
+        </div>
+
+        <div class="prestige-box">
+            <strong>Сингулярность</strong>
+            <div style="color: #ffcc00; margin: 3px 0;">Материя: <span id="m-count">0</span> (+<span id="m-boost">0</span>%)</div>
+            <div style="font-size: 0.8rem;">При сбросе: <span id="m-pend" style="color:#00ff88; font-weight:bold;">0</span></div>
+            <button class="btn" id="prestigeBtn" disabled>Переродиться</button>
+        </div>
+        <button class="util-btn" id="resetGame">Сбросить всё</button>
+    </div>
+
+    <div class="panel">
+        <h2 style="margin:0; font-size: 1.2rem; color: #00d2ff;">Производство</h2>
+        <div class="upgrades-list" id="upgradesList"></div>
+    </div>
+
+    <script>
+        let state = {
+            score: 0, total: 0, matter: 0,
+            upgrades: {
+                u1: { count: 0, base: 15, mult: 1.15, prov: 1, type: 'cl', name: 'Клик', d: '+1 к клику' },
+                u2: { count: 0, base: 50, mult: 1.15, prov: 1, type: 'cp', name: 'Дрон', d: '+1/сек' },
+                u3: { count: 0, base: 400, mult: 1.15, prov: 8, type: 'cp', name: 'Шахта', d: '+8/сек' },
+                u4: { count: 0, base: 3000, mult: 1.15, prov: 45, type: 'cp', name: 'Фабрика', d: '+45/сек' },
+                u5: { count: 0, base: 25000, mult: 1.14, prov: 260, type: 'cp', name: 'Реактор', d: '+260/сек' },
+                u6: { count: 0, base: 200000, mult: 1.13, prov: 1400, type: 'cp', name: 'Дайсон', d: '+1400/сек' },
+                u7: { count: 0, base: 1500000, mult: 1.12, prov: 8500, type: 'cp', name: 'Портал', d: '+8500/сек' }
+            }
+        };
+
+        let clickCountInSecond = 0;
+        setInterval(() => { clickCountInSecond = 0; }, 1000);
+
+        if (localStorage.getItem('spClSave')) {
+            try {
+                const s = JSON.parse(localStorage.getItem('spClSave'));
+                if (typeof s.score === 'number') state.score = s.score;
+                if (typeof s.total === 'number') state.total = s.total;
+                if (typeof s.matter === 'number') state.matter = s.matter;
+                for (let k in s.upgrades) { if (state.upgrades[k]) state.upgrades[k].count = s.upgrades[k].count || 0; }
+            } catch (e) {}
+        }
+
+        const scoreD = document.getElementById('score'), cpsD = document.getElementById('cps-display'), mainClick = document.getElementById('mainClick'), clickArea = document.getElementById('clickArea'), upgList = document.getElementById('upgradesList'), mCount = document.getElementById('m-count'), mBoost = document.getElementById('m-boost'), mPend = document.getElementById('m-pend'), prestigeBtn = document.getElementById('prestigeBtn');
+
+        function getCost(k) { return Math.floor(state.upgrades[k].base * Math.pow(state.upgrades[k].mult, state.upgrades[k].count)); }
+        
+        function getStats() {
+            let cp = 0, cl = 0;
+            for (let k in state.upgrades) {
+                if (state.upgrades[k].type === 'cp') cp += state.upgrades[k].count * state.upgrades[k].prov;
+                if (state.upgrades[k].type === 'cl') cl += state.upgrades[k].count * state.upgrades[k].prov;
+            }
+            let m = 1 + (state.matter * 0.02);
+            return { cps: cp * m, click: (1 + cl) * m };
+        }
+
+        function getPending() {
+            if (state.total < 100000) return 0;
+            let p = Math.floor(Math.cbrt(state.total / 100000)) - state.matter;
+            return p > 0 ? p : 0;
+        }
+
+        function render() {
+            upgList.innerHTML = '';
+            for (let k in state.upgrades) {
+                let u = state.upgrades[k], c = getCost(k), isD = state.score < c;
+                let item = document.createElement('div');
+                item.className = `upg-item ${isD ? 'disabled' : ''}`;
+                item.innerHTML = `<div><b>${u.name}</b><br><small>${u.d}</small></div><div><b>${fmt(c)}</b><br><small>Кл: ${u.count}</small></div>`;
+                if (!isD) item.onclick = function() { state.score -= c; u.count++; update(); save(); };
+                upgList.appendChild(item);
+            }
+        }
+
+        function fmt(n) {
+            if (n >= 1e9) return (n / 1e9).toFixed(1) + 'B';
+            if (n >= 1e6) return (n / 1e6).toFixed(1) + 'M';
+            if (n >= 1e3) return (n / 1e3).toFixed(1) + 'K';
+            return Math.floor(n).toString();
+        }
+
+        function update() {
+            let st = getStats();
+            scoreD.textContent = fmt(state.score);
+            cpsD.textContent = `В секунду: ${fmt(st.cps)}`;
+            mCount.textContent = state.matter;
+            mBoost.textContent = state.matter * 2;
+            let p = getPending();
+            mPend.textContent = p;
+            prestigeBtn.disabled = p <= 0;
+            render();
+        }
+
+        function triggerCheatReset() {
+            alert("Обнаружен автокликер! Превышен лимит в 13 кликов/сек. Прогресс зданий обнулен!");
+            state.score = 0;
+            clickCountInSecond = 0;
+            for (let k in state.upgrades) {
+                state.upgrades[k].count = 0;
+            }
+            update();
+            save();
+        }
+
+        mainClick.onclick = function() {
+            clickCountInSecond++;
+            
+            if (clickCountInSecond > 13) {
+                triggerCheatReset();
+                return;
+            }
+
+            let st = getStats(); state.score += st.click; state.total += st.click;
+            let el = document.createElement('div'); el.className = 'floating-text'; el.textContent = `+${fmt(st.click)}`;
+            el.style.marginLeft = `${(Math.random() - 0.5) * 50}px`;
+            clickArea.appendChild(el); setTimeout(() => el.remove(), 500);
+            update();
+        };
+
+        prestigeBtn.onclick = function() {
+            let p = getPending();
+            if (p > 0 && confirm(`Переродиться ради ${p} материи?`)) {
+                state.matter += p; state.score = 0;
+                for (let k in state.upgrades) state.upgrades[k].count = 0;
+                update(); save();
+            }
+        };
+
+        document.getElementById('resetGame').onclick = function() { if (confirm("Сбросить игру?")) { localStorage.removeItem('spClSave'); location.reload(); } };
+        function save() { localStorage.setItem('spClSave', JSON.stringify(state)); }
+        setInterval(() => { let st = getStats(); if (st.cps > 0) { state.score += st.cps/10; state.total += st.cps/10; update(); } }, 100);
+        setInterval(save, 15000);
+        update();
+    </script>
+</body>
+  </html>
+  
